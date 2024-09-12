@@ -1,56 +1,79 @@
-{
-  # Nix mit Flakes-Unterstützung konfigurieren
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+# /etc/nixos/configuration.nix
+{ config, pkgs, ... }:
 
-  # Home Manager als Modul in NixOS integrieren
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
-    home-manager.url = "github:nix-community/home-manager/release-24.05";
+{
+  # Enable Flakes for package management
+  nix = {
+    package = pkgs.nixFlakes;
+    extraOptions = ''
+      experimental-features = nix-command flakes;
+    '';
   };
 
-  outputs = { nixpkgs, home-manager, ... }: {
-    nixosConfigurations = {
-      # Dein Hostname, z.B. "my-nixos"
-      my-nixos = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";  # oder "aarch64-linux" je nach Architektur
-        modules = [
-          ./configuration.nix
-          home-manager.nixosModules.home-manager
-        ];
+  # Enable Wayland and disable X11
+  services.xserver.enable = false;
+
+  # Enable Hyprland (Wayland window manager)
+  services.xserver.windowManager.hyprland.enable = true;
+
+  # Enable NetworkManager for managing network connections
+  networking.networkmanager.enable = true;
+
+  # Enable PipeWire for sound
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    pulse.enable = true;
+    jack.enable = true;
+  };
+
+  # Enable Home Manager using Flakes
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    users = {
+      strizzi = {  # Replace with your actual username
+        home.stateVersion = "24.05";  # Replace with the current NixOS version
+        programs.home-manager.enable = true;
       };
     };
   };
 
-  # Systemkonfiguration
-  { config, pkgs, ... }:
-  {
-    # Git installieren
-    environment.systemPackages = with pkgs; [
-      git
-      hyprland
-      alacritty
-      waybar
-      rofi
-      mako
-    ];
+  # Add system-wide packages
+  environment.systemPackages = with pkgs; [
+    vim                # A text editor
+    htop               # System monitor
+    hyprland           # The Hyprland compositor
+    alacritty          # Terminal emulator
+    waybar             # Status bar for Hyprland
+    wl-clipboard       # Clipboard utilities for Wayland
+    swaylock           # Lock screen for Wayland
+    firefox            # Web browser
+  ];
 
-    # Home Manager für den Benutzer einrichten
-    home-manager.useUserPackages = true;
-    home-manager.users.your_username = {  # Ersetze 'your_username' mit deinem Benutzernamen
-      home.stateVersion = "24.05";  # Entspricht der aktuellen Version von Home Manager
-      programs.home-manager.enable = true;
-    };
-
-    # Hyprland und Abhängigkeiten installieren
-    services.xserver = {
-      enable = true;
-      layout = "de";  # Tastatur-Layout
-      xkbOptions = "eurosign:e";
-      displayManager.sddm.enable = true;
-      desktopManager.hyprland.enable = true;
-    };
-
-    # Optional: Nützliche Tools
-    programs.swaylock.enable = true;
+  # Enable seatd for Hyprland session management
+  systemd.services.seatd = {
+    enable = true;
+    wantedBy = [ "graphical.target" ];
   };
+
+  # Set user permissions
+  users.users.strizzi = {  # Replace 'yourusername' with your actual username
+    isNormalUser = true;
+    extraGroups = [ "wheel" "networkmanager" ];  # Add necessary groups
+    packages = with pkgs; [
+      hyprland    # Add Hyprland for the user
+    ];
+  };
+
+  # Enable auto-login for LightDM (optional)
+  services.xserver.displayManager.lightdm.autoLogin.enable = true;
+  services.xserver.displayManager.lightdm.autoLogin.user = "strizzi"; # Replace with your user
+
+  # Allow unfree packages (e.g., for proprietary drivers)
+  nixpkgs.config.allowUnfree = true;
+
+  # Enable time services (NTP)
+  time.timeZone = "Europe/Vienna";  # Set your timezone
+  services.ntp.enable = true;
 }
