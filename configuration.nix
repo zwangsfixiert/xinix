@@ -106,7 +106,7 @@
     xwayland
     wofi
     kitty # Terminal-Emulator
-    alacritty # Optional ein weiterer Terminal-Emulator
+    gnome.nautilus
     xdg-desktop-portal-wlr
     networkmanagerapplet
     home-manager
