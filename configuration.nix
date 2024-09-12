@@ -1,79 +1,144 @@
-# /etc/nixos/configuration.nix
+# Edit this configuration file to define what should be installed on
+# your system.  Help is available in the configuration.nix(5) man page
+# and in the NixOS manual (accessible by running ‘nixos-help’).
+
 { config, pkgs, ... }:
 
 {
-  # Enable Flakes for package management
-  nix = {
-    package = pkgs.nixFlakes;
-    extraOptions = ''
-      experimental-features = nix-command flakes;
-    '';
-  };
+  imports =
+    [ # Include the results of the hardware scan.
+      ./hardware-configuration.nix
+    ];
+  
+  # Bootloader.
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
 
-  # Enable Wayland and disable X11
-  services.xserver.enable = false;
+  networking.hostName = "nixos"; # Define your hostname.
+  # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
-  # Enable Hyprland (Wayland window manager)
-  services.xserver.windowManager.hyprland.enable = true;
+  # Configure network proxy if necessary
+  # networking.proxy.default = "http://user:password@proxy:port/";
+  # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
 
-  # Enable NetworkManager for managing network connections
+  # Enable networking
   networking.networkmanager.enable = true;
 
-  # Enable PipeWire for sound
+  # Set your time zone.
+  time.timeZone = "Europe/Vienna";
+
+  # Select internationalisation properties.
+  i18n.defaultLocale = "de_AT.UTF-8";
+
+  i18n.extraLocaleSettings = {
+    LC_ADDRESS = "de_AT.UTF-8";
+    LC_IDENTIFICATION = "de_AT.UTF-8";
+    LC_MEASUREMENT = "de_AT.UTF-8";
+    LC_MONETARY = "de_AT.UTF-8";
+    LC_NAME = "de_AT.UTF-8";
+    LC_NUMERIC = "de_AT.UTF-8";
+    LC_PAPER = "de_AT.UTF-8";
+    LC_TELEPHONE = "de_AT.UTF-8";
+    LC_TIME = "de_AT.UTF-8";
+  };
+
+  # Enable the X11 windowing system.
+  services.xserver.enable = true;
+
+  # Enable the Hyprland Desktop Environment.
+  services.displayManager.sddm.enable = true;
+  programs.hyprland.enable = true;
+  
+  # Configure keymap in X11
+  services.xserver.xkb = {
+    layout = "de";
+    variant = "nodeadkeys";
+  };
+
+  # Enable CUPS to print documents.
+  services.printing.enable = true;
+
+  # Enable sound with pipewire.
+  hardware.pulseaudio.enable = false;
+  security.rtkit.enable = true;
   services.pipewire = {
     enable = true;
     alsa.enable = true;
+    alsa.support32Bit = true;
     pulse.enable = true;
-    jack.enable = true;
+    # If you want to use JACK applications, uncomment this
+    #jack.enable = true;
+
+    # use the example session manager (no others are packaged yet so this is enabled by default,
+    # no need to redefine it in your config for now)
+    #media-session.enable = true;
   };
 
-  # Enable Home Manager using Flakes
-  home-manager = {
-    useGlobalPkgs = true;
-    useUserPackages = true;
-    users = {
-      strizzi = {  # Replace with your actual username
-        home.stateVersion = "24.05";  # Replace with the current NixOS version
-        programs.home-manager.enable = true;
-      };
-    };
-  };
+  # Enable touchpad support (enabled default in most desktopManager).
+  # services.xserver.libinput.enable = true;
 
-  # Add system-wide packages
-  environment.systemPackages = with pkgs; [
-    vim                # A text editor
-    htop               # System monitor
-    hyprland           # The Hyprland compositor
-    alacritty          # Terminal emulator
-    waybar             # Status bar for Hyprland
-    wl-clipboard       # Clipboard utilities for Wayland
-    swaylock           # Lock screen for Wayland
-    firefox            # Web browser
-  ];
-
-  # Enable seatd for Hyprland session management
-  systemd.services.seatd = {
-    enable = true;
-    wantedBy = [ "graphical.target" ];
-  };
-
-  # Set user permissions
-  users.users.strizzi = {  # Replace 'yourusername' with your actual username
+  # Define a user account. Don't forget to set a password with ‘passwd’.
+  users.users.strizzi = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" ];  # Add necessary groups
+    description = "strizzi";
+    extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [
-      hyprland    # Add Hyprland for the user
+      geany
+      thunderbird
     ];
   };
 
-  # Enable auto-login for LightDM (optional)
-  services.xserver.displayManager.lightdm.autoLogin.enable = true;
-  services.xserver.displayManager.lightdm.autoLogin.user = "strizzi"; # Replace with your user
+  # Install firefox.
+  programs.firefox.enable = true;
 
-  # Allow unfree packages (e.g., for proprietary drivers)
+  # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
-  # Enable time services (NTP)
-  time.timeZone = "Europe/Vienna";  # Set your timezone
-  services.ntp.enable = true;
+  # List packages installed in system profile. To search, run:
+  # $ nix search wget
+  environment.systemPackages = with pkgs; [
+    git
+    wget
+    neovim
+    hyprland
+    waybar
+    swaylock
+    xwayland
+    wofi
+    kitty # Terminal-Emulator
+    alacritty # Optional ein weiterer Terminal-Emulator
+    xdg-desktop-portal-wlr
+    networkmanagerapplet
+    home-manager
+    ags
+  ];
+
+  # Some programs need SUID wrappers, can be configured further or are
+  # started in user sessions.
+  # programs.mtr.enable = true;
+  # programs.gnupg.agent = {
+  #   enable = true;
+  #   enableSSHSupport = true;
+  # };
+
+  # List services that you want to enable:
+
+  # Enable the OpenSSH daemon.
+  # services.openssh.enable = true;
+
+  # Open ports in the firewall.
+  # networking.firewall.allowedTCPPorts = [ ... ];
+  # networking.firewall.allowedUDPPorts = [ ... ];
+  # Or disable the firewall altogether.
+  # networking.firewall.enable = false;
+
+  # This value determines the NixOS release from which the default
+  # settings for stateful data, like file locations and database versions
+  # on your system were taken. It‘s perfectly fine and recommended to leave
+  # this value at the release version of the first install of this system.
+  # Before changing this value read the documentation for this option
+  # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
+  system.stateVersion = "24.05"; # Did you read the comment?
+
 }
+
