@@ -1,41 +1,54 @@
 {
-  # Hyprland configuration
-  hyprland.version = "24.05";
-  hyprland.enable = true;
-  hyprland.config = "/etc/hypr/hypr.conf";
-
-  # Xorg configuration
-  xorg.enable = true;
-  xorg.server = "Xorg";
-
-  # Input devices
-  input.devices = {
-    # Configure keyboard and mouse devices here
+  # Essential imports for NixOS and Home Manager
+  inputs = {
+    nixos = {
+      url = "github:NixOS/nixos";
+    };
+    home-manager = {
+      url = "github:NixOS/home-manager";
+    };
   };
 
-  # Compositor modules
-  modules = [
-    # Essential modules
-    "picom" # For compositing effects
-    "xcursor" # For mouse cursor management
-    "xkeyboard-config" # For keyboard layout and configuration
-    "xrandr" # For screen resolution and orientation management
+  # Configuration for your home manager
+  outputs = {
+    self = {
+      inherit inputs home-manager;
+      # Configure home-manager with your desired options
+      home-manager.configuration = ./home.nix;
+    };
+  };
 
-    # Optional modules (add as needed)
-    "autorandr" # For automatic screen configuration
-    "brightness" # For screen brightness control
-    "keyboard-layout" # For keyboard layout switching
-    "swaylock" # For screen locking
-    "lightdm" # For display manager
-    "networkmanagerapplet" # For network manager applet
-  ];
+  # Configuration for Hyprland
+  hyprland = {
+    url = "github:hyprland/hyprland";
+    # Configure Hyprland with your desired options
+    # For example:
+    # hyprland.defaultConfig = {
+    #   # ... your Hyprland configuration ...
+    # };
+  };
 
-  # Services
-  services = [
-    # Start Hyprland, Xorg, lightdm, and networkmanagerapplet services
-    "hyprland"
-    "xorg"
-    "lightdm"
-    "networkmanagerapplet"
-  ];
+  # Configuration for the Nmap applet
+  nmapplet = {
+    url = "github:nmap/nmapplet";
+    # Configure the Nmap applet with your desired options
+    # For example:
+    # nmapplet.defaultConfig = {
+    #   # ... your Nmap applet configuration ...
+    # };
+  };
+
+  # Declare your home manager configuration file
+  home.nix = {
+    # ... your home manager configuration ...
+    # Include Hyprland and Nmap applet in your home configuration
+    programs.hyprland = {
+      enable = true;
+      # ... your Hyprland configuration ...
+    };
+    programs.nmapplet = {
+      enable = true;
+      # ... your Nmap applet configuration ...
+    };
+  };
 }
