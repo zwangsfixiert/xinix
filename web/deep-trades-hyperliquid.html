@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Trades · Hyperliquid</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #111827; --grid: #1c2433; --text: #c9d4e5; --muted: #6b7a90;
+    --up: #22c55e; --down: #ef4444; --buy: 34, 197, 94; --sell: 239, 68, 68;
+    --absorb: #facc15; --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--grid); }
+  header h1 { font-size: 14px; margin: 0 8px 0 0; color: #fff; letter-spacing: .5px; }
+  label { color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  select, input { background: var(--bg); color: var(--text); border: 1px solid var(--grid);
+    border-radius: 4px; padding: 4px 6px; font: inherit; }
+  input[type=number] { width: 100px; }
+  #taker { width: 230px; }
+  button { background: #1f2937; color: var(--text); border: 1px solid var(--grid);
+    border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+  .pill.live { background: rgba(34,197,94,.15); color: var(--up); }
+  .pill.demo { background: rgba(250,204,21,.15); color: var(--absorb); }
+  .pill.off  { background: rgba(239,68,68,.15); color: var(--down); }
+  .spacer { flex: 1; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #chartWrap { position: relative; flex: 1; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  aside { width: 330px; border-left: 1px solid var(--grid); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; }
+  aside h2 { font-size: 12px; margin: 0; padding: 8px 10px; color: var(--muted);
+    border-bottom: 1px solid var(--grid); text-transform: uppercase; letter-spacing: 1px; }
+  #list { overflow-y: auto; flex: 1; }
+  .row { display: grid; grid-template-columns: 62px 1fr 78px; gap: 6px; padding: 4px 10px;
+    border-bottom: 1px solid #151d2a; cursor: pointer; }
+  .row:hover { background: #172033; }
+  .row .b { color: var(--up); } .row .a { color: var(--down); }
+  .row .addr { color: var(--muted); font-size: 11px; grid-column: 1 / -1; }
+  .row .abs { color: var(--absorb); }
+  #tip { position: absolute; pointer-events: none; display: none; background: rgba(17,24,39,.96);
+    border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; min-width: 220px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5); white-space: nowrap; z-index: 5; }
+  #tip .k { color: var(--muted); display: inline-block; width: 92px; }
+  #legend { position: absolute; left: 10px; top: 8px; color: var(--muted); font-size: 11px;
+    pointer-events: none; }
+  #legend b { color: var(--text); }
+  @media (max-width: 800px) { aside { display: none; } #taker { width: 150px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEEP TRADES</h1>
+  <label>Coin <select id="coin"></select></label>
+  <label>Intervall <select id="interval"></select></label>
+  <label>Min. Notional $ <input id="minNotional" type="number" min="0" step="1000" value="50000"></label>
+  <label>Taker <input id="taker" placeholder="0x… (Klick auf Bubble setzt Filter)" spellcheck="false"></label>
+  <button id="clearTaker" title="Taker-Filter löschen">✕</button>
+  <label><input id="absOnly" type="checkbox"> nur Absorption</label>
+  <label>Bubble-Größe <input id="bubbleScale" type="range" min="0.3" max="3" step="0.1" value="1"></label>
+  <span class="spacer"></span>
+  <span id="info" style="color:var(--muted)"></span>
+  <button id="demoBtn" title="Demo-Modus umschalten">Demo</button>
+  <span id="status" class="pill off">OFFLINE</span>
+</header>
+<main>
+  <div id="chartWrap">
+    <canvas id="chart"></canvas>
+    <div id="legend"></div>
+    <div id="tip"></div>
+  </div>
+  <aside>
+    <h2>Letzte Deep Trades</h2>
+    <div id="list"></div>
+  </aside>
+</main>
+<script>
+"use strict";
+// ------------------------------------------------------------------ settings
+const params = new URLSearchParams(location.search);
+const API = (params.get("api") || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
+const WS_BASE = API.replace(/^http/, "ws");
+const INTERVAL_MS = { "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5,
+  "2h": 72e5, "4h": 144e5, "8h": 288e5, "12h": 432e5, "1d": 864e5, "3d": 2592e5, "1w": 6048e5, "1M": 2592e6 };
+const CANDLES_TO_LOAD = 300;
+const LS = (() => { try { return window.localStorage; } catch { return null; } })();
+const store = { get(k, d) { try { return LS?.getItem("dt." + k) ?? d; } catch { return d; } },
+                set(k, v) { try { LS?.setItem("dt." + k, v); } catch {} } };
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("chart"), ctx = canvas.getContext("2d"), tip = $("tip");
+
+const state = {
+  mode: "init",              // "live" | "demo" | "offline"
+  coins: ["BTC", "ETH", "SOL", "HYPE"],
+  coin: store.get("coin", "BTC"),
+  interval: store.get("interval", "1m"),
+  candles: [],               // {t, o, h, l, c, v}
+  trades: new Map(),         // id -> deep trade
+  absorptionMin: {},
+  view: { right: 0, barW: 8, follow: true },  // right: index offset from the last candle
+  hover: null, mouse: null, ws: null, wsRetry: 0, demoTimer: null, refreshTimer: null, gen: 0,
+};
+
+// ------------------------------------------------------------------ helpers
+const fmtPx = (p) => p >= 1000 ? p.toFixed(1) : p >= 10 ? p.toFixed(2) : p >= 1 ? p.toFixed(3) : p.toPrecision(4);
+const fmtUsd = (n) => n >= 1e6 ? "$" + (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? "$" + (n / 1e3).toFixed(1) + "K" : "$" + n.toFixed(0);
+const shortAddr = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "";
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour12: false });
+const fmtDate = (ms) => new Date(ms).toLocaleString("de-DE", { hour12: false });
+const imsOf = () => INTERVAL_MS[state.interval];
+
+function setStatus(mode, text) {
+  state.mode = mode;
+  const el = $("status");
+  el.className = "pill " + (mode === "live" ? "live" : mode === "demo" ? "demo" : "off");
+  el.textContent = text || mode.toUpperCase();
+  $("demoBtn").textContent = mode === "demo" ? "Live" : "Demo";
+}
+
+function filters() {
+  return { min: +$("minNotional").value || 0, taker: $("taker").value.trim().toLowerCase(),
+           absOnly: $("absOnly").checked };
+}
+function visibleTrades() {
+  const f = filters();
+  const out = [];
+  for (const t of state.trades.values()) {
+    if (t.notional < f.min) continue;
+    if (f.taker && !t.taker.includes(f.taker)) continue;
+    if (f.absOnly && t.absorption !== true) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ data: API
+async function getJSON(path) {
+  const r = await fetch(API + path, { cache: "no-store" });
+  if (!r.ok) throw new Error(path + " → HTTP " + r.status + " " + (await r.text()).slice(0, 200));
+  return r.json();
+}
+
+// Hyperliquid candleSnapshot rows: {t, T, s, i, o, c, h, l, v, n} (numbers as strings)
+const parseCandle = (k) => ({ t: +k.t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v });
+
+async function loadLive() {
+  const gen = ++state.gen;
+  stopDemo(); closeWs();
+  const ims = imsOf(), now = Date.now();
+  const cfg = await getJSON("/config");
+  state.coins = cfg.coins; state.absorptionMin = cfg.absorption_min_notional || {};
+  fillCoinSelect();
+  if (!state.coins.includes(state.coin)) state.coin = state.coins[0];
+  $("coin").value = state.coin;
+  const start = now - CANDLES_TO_LOAD * ims;
+  const maxRange = (cfg.max_range_hours || 72) * 36e5;
+  const dtStart = Math.max(start, now - maxRange);
+  const [candles, dts] = await Promise.all([
+    getJSON(`/candles?coin=${state.coin}&interval=${state.interval}&start=${start}&end=${now}`),
+    getJSON(`/deeptrades?coin=${state.coin}&start=${dtStart}&end=${now}&min_notional=${Math.min(+$("minNotional").value || 0, 1e4)}`),
+  ]);
+  if (gen !== state.gen) return;
+  state.candles = candles.map(parseCandle).sort((a, b) => a.t - b.t);
+  state.trades = new Map(dts.data.map((d) => [d.id, d]));
+  state.view.right = 0; state.view.follow = true;
+  $("info").textContent = `${dts.count} Deep Trades seit ${fmtDate(dtStart)} · Fenster ${cfg.window_ms} ms`;
+  setStatus("live", "LIVE");
+  connectWs(gen);
+  clearInterval(state.refreshTimer);
+  state.refreshTimer = setInterval(() => refreshCandles(gen), 60000);
+  renderList(); draw();
+}
+
+async function refreshCandles(gen) {
+  if (gen !== state.gen || state.mode !== "live") return;
+  const ims = imsOf(), now = Date.now();
+  try {
+    const rows = await getJSON(`/candles?coin=${state.coin}&interval=${state.interval}&start=${now - 5 * ims}&end=${now}`);
+    if (gen !== state.gen) return;
+    for (const k of rows.map(parseCandle)) upsertCandle(k);
+    draw();
+  } catch (e) { console.warn("candle refresh", e); }
+}
+
+function upsertCandle(k) {
+  const cs = state.candles;
+  const i = cs.findLastIndex((c) => c.t === k.t);
+  if (i >= 0) cs[i] = k;
+  else { cs.push(k); cs.sort((a, b) => a.t - b.t); }
+}
+
+function applyFill(time, px, sz) {
+  const cs = state.candles, ims = imsOf();
+  let last = cs[cs.length - 1];
+  if (!last) { cs.push({ t: Math.floor(time / ims) * ims, o: px, h: px, l: px, c: px, v: sz }); return; }
+  if (time < last.t) return;
+  while (time >= last.t + ims) {
+    last = { t: last.t + ims, o: last.c, h: last.c, l: last.c, c: last.c, v: 0 };
+    cs.push(last);
+  }
+  last.h = Math.max(last.h, px); last.l = Math.min(last.l, px); last.c = px; last.v += sz;
+}
+
+function connectWs(gen) {
+  const ws = new WebSocket(`${WS_BASE}/stream?coin=${encodeURIComponent(state.coin)}`);
+  state.ws = ws;
+  let dirty = false;
+  ws.onopen = () => { state.wsRetry = 0; setStatus("live", "LIVE"); };
+  ws.onmessage = (ev) => {
+    if (gen !== state.gen) return;
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "fills") { for (const [t, px, sz] of msg.data) applyFill(t, px, sz); dirty = true; }
+    else if (msg.type === "deeptrade") { state.trades.set(msg.data.id, msg.data); dirty = true; renderListSoon(); }
+  };
+  ws.onclose = () => {
+    if (gen !== state.gen || state.mode === "demo") return;
+    setStatus("offline", "RECONNECT…");
+    const delay = Math.min(30000, 1000 * 2 ** state.wsRetry++);
+    setTimeout(() => { if (gen === state.gen) connectWs(gen); }, delay);
+  };
+  (function loop() { if (gen !== state.gen) return; if (dirty) { dirty = false; draw(); } requestAnimationFrame(loop); })();
+}
+function closeWs() { if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
+                     clearInterval(state.refreshTimer); }
+
+// ------------------------------------------------------------------ data: demo
+const DEMO_BASE = { BTC: 62000, ETH: 3000, SOL: 150, HYPE: 25 };
+function rnd(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+const demoAddrs = Array.from({ length: 40 }, (_, i) => "0x" + (rnd(i + 7)() * 1e18).toString(16).padStart(14, "0").slice(0, 14) + i.toString(16).padStart(26, "a"));
+
+function startDemo(reason) {
+  const gen = ++state.gen;
+  closeWs(); stopDemo();
+  const ims = imsOf(), now = Date.now(), r = Math.random;
+  let px = DEMO_BASE[state.coin] || 100, vol = px * 0.0015;
+  state.candles = []; state.trades = new Map();
+  const t0 = Math.floor(now / ims) * ims - (CANDLES_TO_LOAD - 1) * ims;
+  let seq = 0;
+  const mkTrade = (t, c, side, big) => {
+    const notional = (big ? 3e5 + r() * 3e6 : 2e4 + r() ** 3 * 4e5);
+    const vwap = c * (1 + (r() - 0.5) * 0.0008);
+    const spread = vwap * 0.0004 * r();
+    const tr = { id: `DEMO-${++seq}`, coin: state.coin, side, taker: demoAddrs[Math.floor(r() * r() * demoAddrs.length)],
+      start_time: t, end_time: t + Math.floor(r() * 400), vwap, sz: notional / vwap, notional,
+      fills: 1 + Math.floor(r() * 40), makers: 1 + Math.floor(r() * 12),
+      px_min: vwap - spread, px_max: vwap + spread, px_first: side === "B" ? vwap - spread : vwap + spread,
+      px_last: side === "B" ? vwap + spread : vwap - spread, absorption: notional >= 1e6 ? r() < 0.35 : false };
+    state.trades.set(tr.id, tr);
+  };
+  for (let i = 0; i < CANDLES_TO_LOAD; i++) {
+    const o = px; let h = o, l = o;
+    for (let k = 0; k < 6; k++) { px += (r() - 0.5) * vol; h = Math.max(h, px); l = Math.min(l, px); }
+    state.candles.push({ t: t0 + i * ims, o, h, l, c: px, v: r() * 100 });
+    const n = Math.floor(r() * 4);
+    for (let k = 0; k < n; k++) mkTrade(t0 + i * ims + Math.floor(r() * ims), l + (h - l) * r(), r() < 0.5 ? "B" : "A", r() < 0.15);
+  }
+  state.view.right = 0; state.view.follow = true;
+  setStatus("demo", "DEMO");
+  $("info").textContent = reason ? `Demo-Modus (${reason})` : "Demo-Modus (synthetische Daten)";
+  state.demoTimer = setInterval(() => {
+    if (gen !== state.gen) return;
+    px += (r() - 0.5) * vol * 0.6;
+    applyFill(Date.now(), px, r());
+    if (r() < 0.08) { mkTrade(Date.now(), px, r() < 0.5 ? "B" : "A", r() < 0.2); renderListSoon(); }
+    draw();
+  }, 250);
+  renderList(); draw();
+}
+function stopDemo() { clearInterval(state.demoTimer); state.demoTimer = null; }
+
+async function reload() {
+  store.set("coin", state.coin); store.set("interval", state.interval);
+  if (params.get("demo") === "1" || state.forceDemo) return startDemo();
+  try { await loadLive(); }
+  catch (e) { console.warn("API nicht erreichbar, Demo-Fallback:", e); startDemo("API nicht erreichbar"); }
+}
+
+// ------------------------------------------------------------------ rendering
+const PAD = { r: 70, b: 24, t: 10 };
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  draw();
+}
+
+function layout() {
+  const cs = state.candles, bw = state.view.barW;
+  const plotW = W - PAD.r, plotH = H - PAD.b - PAD.t;
+  const count = Math.ceil(plotW / bw) + 1;
+  const lastIdx = cs.length - 1 - Math.round(state.view.right);
+  const firstIdx = Math.max(0, lastIdx - count + 1);
+  const vis = cs.slice(firstIdx, Math.max(firstIdx, lastIdx + 1));
+  let lo = Infinity, hi = -Infinity;
+  for (const c of vis) { lo = Math.min(lo, c.l); hi = Math.max(hi, c.h); }
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  const m = (hi - lo) * 0.08 || hi * 0.001 || 1; lo -= m; hi += m;
+  const xOfIdx = (i) => plotW - bw / 2 - (lastIdx - i) * bw - 4;
+  const yOf = (p) => PAD.t + (hi - p) / (hi - lo) * plotH;
+  const pOfY = (y) => hi - (y - PAD.t) / plotH * (hi - lo);
+  const t0 = vis.length ? vis[0].t : 0, t1 = vis.length ? vis[vis.length - 1].t + imsOf() : 0;
+  const ims = imsOf();
+  // time → x using candle index (continuous within the candle)
+  const xOfTime = (t) => {
+    if (!cs.length) return -1;
+    const idx = lastIdx - (cs[lastIdx]?.t - t) / ims;
+    return xOfIdx(Math.floor(idx)) + (idx - Math.floor(idx) - 0.5) * bw * 0.8;
+  };
+  return { vis, firstIdx, lastIdx, lo, hi, plotW, plotH, bw, xOfIdx, yOf, pOfY, xOfTime, t0, t1 };
+}
+
+function bubbleRadius(n, maxN) {
+  const s = +$("bubbleScale").value;
+  return Math.max(3, Math.min(60, Math.sqrt(n / Math.max(maxN, 1)) * 38 * s));
+}
+
+let bubbles = [];
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg") || "#0b0f17";
+  ctx.fillRect(0, 0, W, H);
+  if (!state.candles.length) {
+    ctx.fillStyle = "#6b7a90"; ctx.font = "13px monospace";
+    ctx.fillText("Keine Daten", W / 2 - 40, H / 2); return;
+  }
+  const L = layout();
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+
+  // grid + price axis
+  ctx.font = "11px ui-monospace, monospace"; ctx.textBaseline = "middle";
+  const steps = 8, raw = (L.hi - L.lo) / steps, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= raw);
+  for (let p = Math.ceil(L.lo / step) * step; p <= L.hi; p += step) {
+    const y = Math.round(L.yOf(p)) + 0.5;
+    ctx.strokeStyle = col("--grid"); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(L.plotW, y); ctx.stroke();
+    ctx.fillStyle = col("--muted"); ctx.fillText(fmtPx(p), L.plotW + 6, y);
+  }
+  // time axis
+  const every = Math.max(1, Math.ceil(110 / L.bw));
+  ctx.textBaseline = "top";
+  for (let i = L.firstIdx; i <= L.lastIdx; i++) {
+    if (i % every) continue;
+    const x = Math.round(L.xOfIdx(i)) + 0.5, t = state.candles[i].t;
+    ctx.strokeStyle = col("--grid"); ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b); ctx.stroke();
+    const lbl = imsOf() >= 864e5 ? new Date(t).toLocaleDateString("de-DE") : fmtTime(t).slice(0, 5);
+    ctx.fillStyle = col("--muted"); ctx.fillText(lbl, x - 16, H - PAD.b + 6);
+  }
+
+  // candles
+  const body = Math.max(1, L.bw * 0.7);
+  for (let i = L.firstIdx; i <= L.lastIdx; i++) {
+    const c = state.candles[i]; if (!c) continue;
+    const x = L.xOfIdx(i), up = c.c >= c.o;
+    ctx.strokeStyle = ctx.fillStyle = up ? col("--up") : col("--down");
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, L.yOf(c.h)); ctx.lineTo(Math.round(x) + 0.5, L.yOf(c.l)); ctx.stroke();
+    const y1 = L.yOf(Math.max(c.o, c.c)), y2 = L.yOf(Math.min(c.o, c.c));
+    ctx.fillRect(x - body / 2, y1, body, Math.max(1, y2 - y1));
+  }
+  ctx.globalAlpha = 1;
+
+  // last price line
+  const lastC = state.candles[state.candles.length - 1];
+  const ly = L.yOf(lastC.c);
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = col("--accent");
+  ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(L.plotW, ly); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = col("--accent"); ctx.fillRect(L.plotW, ly - 9, PAD.r, 18);
+  ctx.fillStyle = "#000"; ctx.textBaseline = "middle"; ctx.fillText(fmtPx(lastC.c), L.plotW + 6, ly);
+
+  // bubbles
+  const vt = visibleTrades().filter((t) => t.start_time >= L.t0 && t.start_time < L.t1);
+  const maxN = vt.reduce((m, t) => Math.max(m, t.notional), 0);
+  vt.sort((a, b) => b.notional - a.notional);   // small ones on top
+  bubbles = [];
+  const takerF = filters().taker;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, L.plotW, H - PAD.b); ctx.clip();
+  for (const t of vt) {
+    const x = L.xOfTime(t.start_time), y = L.yOf(t.vwap), r = bubbleRadius(t.notional, maxN);
+    if (x < -r || x > L.plotW + r) continue;
+    const rgb = t.side === "B" ? col("--buy") : col("--sell");
+    const hovered = state.hover && state.hover.id === t.id;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${rgb}, ${hovered ? 0.75 : 0.42})`; ctx.fill();
+    ctx.lineWidth = hovered || takerF ? 2 : 1;
+    ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.stroke();
+    // price range of the sweep
+    if (r > 6 && t.px_max > t.px_min) {
+      ctx.strokeStyle = `rgba(${rgb}, 0.9)`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, L.yOf(t.px_max)); ctx.lineTo(x, L.yOf(t.px_min)); ctx.stroke();
+    }
+    if (t.absorption === true) {        // absorption marker: dashed yellow ring + "A"
+      ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.strokeStyle = col("--absorb");
+      ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = col("--absorb"); ctx.font = "bold 11px ui-monospace, monospace";
+      ctx.textBaseline = "middle"; ctx.fillText("A", x + r + 6, y - r);
+      ctx.font = "11px ui-monospace, monospace";
+    }
+    if (r >= 16) {
+      ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+      ctx.fillText(fmtUsd(t.notional), x, y); ctx.textAlign = "left";
+    }
+    ctx.lineWidth = 1;
+    bubbles.push({ x, y, r, t });
+  }
+  ctx.restore();
+
+  // crosshair
+  if (state.mouse && state.mouse.x < L.plotW) {
+    const { x, y } = state.mouse;
+    ctx.strokeStyle = "rgba(201,212,229,.25)"; ctx.setLineDash([2, 4]);
+    ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b); ctx.moveTo(0, y); ctx.lineTo(L.plotW, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#1f2937"; ctx.fillRect(L.plotW, y - 9, PAD.r, 18);
+    ctx.fillStyle = col("--text"); ctx.textBaseline = "middle"; ctx.fillText(fmtPx(L.pOfY(y)), L.plotW + 6, y);
+  }
+
+  const c = state.candles[Math.min(state.candles.length - 1, L.lastIdx)];
+  $("legend").innerHTML = `<b>${state.coin}-PERP</b> · ${state.interval} · O <b>${fmtPx(c.o)}</b> H <b>${fmtPx(c.h)}</b> L <b>${fmtPx(c.l)}</b> C <b>${fmtPx(c.c)}</b> · ${vt.length} Bubbles` +
+    (takerF ? ` · Taker-Filter <b>${takerF}</b>` : "");
+}
+
+// ------------------------------------------------------------------ list + tooltip
+let listTimer = null;
+function renderListSoon() { if (!listTimer) listTimer = setTimeout(() => { listTimer = null; renderList(); }, 300); }
+function renderList() {
+  const rows = visibleTrades().sort((a, b) => b.start_time - a.start_time).slice(0, 150);
+  $("list").innerHTML = rows.map((t) => `
+    <div class="row" data-id="${t.id}">
+      <span>${fmtTime(t.start_time)}</span>
+      <span class="${t.side === "B" ? "b" : "a"}">${t.side === "B" ? "BUY " : "SELL"} ${fmtPx(t.vwap)}${t.absorption === true ? ' <span class="abs">◎ ABS</span>' : ""}</span>
+      <span style="text-align:right">${fmtUsd(t.notional)}</span>
+      <span class="addr">${t.taker} · ${t.fills} Fills · ${t.makers} Maker</span>
+    </div>`).join("");
+}
+$("list").addEventListener("click", (e) => {
+  const row = e.target.closest(".row"); if (!row) return;
+  const t = state.trades.get(row.dataset.id); if (!t) return;
+  // scroll chart to the trade
+  const idx = state.candles.findIndex((c) => c.t + imsOf() > t.start_time);
+  if (idx >= 0) { state.view.right = Math.max(0, state.candles.length - 1 - idx - 20); state.view.follow = false; draw(); }
+});
+
+function showTip(b, mx, my) {
+  const t = b.t;
+  const absTxt = t.absorption === true ? '<span style="color:var(--absorb)">ja</span>'
+    : t.absorption === false ? "nein" : "ausstehend";
+  tip.innerHTML = `
+    <div style="margin-bottom:4px;color:${t.side === "B" ? "var(--up)" : "var(--down)"}"><b>${t.side === "B" ? "TAKER BUY" : "TAKER SELL"}</b> · ${fmtDate(t.start_time)}</div>
+    <div><span class="k">Notional</span>${fmtUsd(t.notional)} (${t.sz.toPrecision(5)} ${t.coin})</div>
+    <div><span class="k">VWAP</span>${fmtPx(t.vwap)}</div>
+    <div><span class="k">Range</span>${fmtPx(t.px_min)} – ${fmtPx(t.px_max)}</div>
+    <div><span class="k">Fills</span>${t.fills} · ${t.makers} Maker · ${t.end_time - t.start_time} ms</div>
+    <div><span class="k">Absorption</span>${absTxt}</div>
+    <div><span class="k">Taker</span>${shortAddr(t.taker)}</div>
+    <div style="color:var(--muted);font-size:11px;margin-top:4px">Klick: nach diesem Taker filtern</div>`;
+  tip.style.display = "block";
+  const wrap = canvas.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(mx + 16, wrap.width - tw - 8) + "px";
+  tip.style.top = Math.max(4, Math.min(my + 16, wrap.height - th - 8)) + "px";
+}
+
+function hitTest(x, y) {
+  let best = null;
+  for (const b of bubbles) {
+    const d = Math.hypot(b.x - x, b.y - y);
+    if (d <= Math.max(b.r, 5) && (!best || b.r < best.r)) best = b;
+  }
+  return best;
+}
+
+// ------------------------------------------------------------------ interaction
+let drag = null;
+canvas.addEventListener("mousedown", (e) => { drag = { x: e.offsetX, right: state.view.right, moved: false }; });
+window.addEventListener("mouseup", () => { setTimeout(() => (drag = null), 0); });
+canvas.addEventListener("mousemove", (e) => {
+  state.mouse = { x: e.offsetX, y: e.offsetY };
+  if (drag) {
+    const dx = e.offsetX - drag.x;
+    if (Math.abs(dx) > 3) drag.moved = true;
+    state.view.right = Math.max(0, Math.min(state.candles.length - 5, drag.right + dx / state.view.barW));
+    state.view.follow = state.view.right < 0.5;
+  }
+  const b = hitTest(e.offsetX, e.offsetY);
+  state.hover = b ? b.t : null;
+  if (b) showTip(b, e.offsetX, e.offsetY); else tip.style.display = "none";
+  draw();
+});
+canvas.addEventListener("mouseleave", () => { state.mouse = null; state.hover = null; tip.style.display = "none"; draw(); });
+canvas.addEventListener("click", (e) => {
+  if (drag && drag.moved) return;
+  const b = hitTest(e.offsetX, e.offsetY);
+  if (b) { $("taker").value = b.t.taker; onFilter(); }
+});
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  state.view.barW = Math.max(2, Math.min(40, state.view.barW * f));
+  draw();
+}, { passive: false });
+canvas.addEventListener("dblclick", () => { state.view.right = 0; state.view.follow = true; state.view.barW = 8; draw(); });
+
+function onFilter() {
+  store.set("minNotional", $("minNotional").value);
+  renderList(); draw();
+}
+["minNotional", "taker", "absOnly", "bubbleScale"].forEach((id) => $(id).addEventListener("input", onFilter));
+$("clearTaker").onclick = () => { $("taker").value = ""; onFilter(); };
+$("coin").onchange = (e) => { state.coin = e.target.value; reload(); };
+$("interval").onchange = (e) => { state.interval = e.target.value; reload(); };
+$("demoBtn").onclick = () => { state.forceDemo = state.mode !== "demo"; if (!state.forceDemo) params.delete("demo"); reload(); };
+window.addEventListener("resize", resize);
+
+function fillCoinSelect() {
+  $("coin").innerHTML = state.coins.map((c) => `<option>${c}</option>`).join("");
+  $("coin").value = state.coin;
+}
+$("interval").innerHTML = Object.keys(INTERVAL_MS).map((i) => `<option>${i}</option>`).join("");
+$("interval").value = state.interval in INTERVAL_MS ? state.interval : "1m";
+$("minNotional").value = store.get("minNotional", "50000");
+fillCoinSelect();
+resize();
+reload();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[Unit]
+Description=Deep Trades – Hyperliquid trades collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deeptrades
+Group=deeptrades
+WorkingDirectory=/opt/deeptrades
+Environment=DEEPTRADES_CONFIG=/opt/deeptrades/config.toml
+ExecStart=/opt/deeptrades/.venv/bin/python -m deeptrades.collector --config /opt/deeptrades/config.toml
+Restart=always
+RestartSec=5
+# SIGTERM -> collector flushes its queue and exits
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/deeptrades/data
+
+[Install]
+WantedBy=multi-user.target

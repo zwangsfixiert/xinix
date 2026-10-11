@@ -1,0 +1,33 @@
+# Deep Trades – Konfiguration
+db_path = "data/deeptrades.sqlite"
+retention_days = 30
+log_level = "INFO"
+
+[collector]
+ws_url = "wss://api.hyperliquid.xyz/ws"
+coins = ["BTC", "ETH", "SOL", "HYPE"]
+ping_interval_s = 30
+stale_timeout_s = 90
+backoff_initial_s = 1
+backoff_max_s = 60
+backfill_on_connect = true      # recentTrades per REST nach jedem (Re)Connect
+
+[aggregation]
+window_ms = 500                 # Fenster ab dem ersten Fill eines Takers (inklusive)
+absorption_enabled = true
+absorption_min_notional = 250000          # USD
+absorption_horizon_s = 10                 # Preis X Sekunden nach Ende des Deep Trades
+absorption_tolerance_bps = 0              # erlaubtes Überschießen in Trade-Richtung
+
+[aggregation.absorption_min_notional_per_coin]
+BTC = 1000000
+ETH = 500000
+
+[api]
+host = "127.0.0.1"
+port = 8000
+info_url = "https://api.hyperliquid.xyz/info"
+max_range_hours = 72
+live_poll_interval_s = 0.25
+cors_origins = []               # leer = nur same-origin (hinter Nginx)
+serve_frontend = true
