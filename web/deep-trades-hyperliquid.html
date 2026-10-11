@@ -7,9 +7,11 @@
 <link rel="icon" href="data:,">
 <style>
   :root {
-    --bg: #0b0f17; --panel: #111827; --grid: #1c2433; --text: #c9d4e5; --muted: #6b7a90;
-    --up: #22c55e; --down: #ef4444; --buy: 34, 197, 94; --sell: 239, 68, 68;
-    --absorb: #facc15; --accent: #38bdf8;
+    /* TradingView Dark (Standard) */
+    --bg: #131722; --panel: #131722; --grid: #2a2e39; --text: #d1d4dc; --muted: #787b86;
+    --up: #26a69a; --down: #ef5350; --buy: 38, 166, 154; --sell: 239, 83, 80;
+    --absorb: #fdd835; --accent: #2962ff; --cross: #9598a1; --label: #363a45;
+    --hover: #2a2e39; --row-line: #1e222d;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -23,13 +25,13 @@
     border-radius: 4px; padding: 4px 6px; font: inherit; }
   input[type=number] { width: 100px; }
   #taker { width: 230px; }
-  button { background: #1f2937; color: var(--text); border: 1px solid var(--grid);
+  button { background: var(--label); color: var(--text); border: 1px solid var(--grid);
     border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
   button:hover { border-color: var(--accent); }
   .pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
-  .pill.live { background: rgba(34,197,94,.15); color: var(--up); }
-  .pill.demo { background: rgba(250,204,21,.15); color: var(--absorb); }
-  .pill.off  { background: rgba(239,68,68,.15); color: var(--down); }
+  .pill.live { background: rgba(38,166,154,.15); color: var(--up); }
+  .pill.demo { background: rgba(253,216,53,.15); color: var(--absorb); }
+  .pill.off  { background: rgba(239,83,80,.15); color: var(--down); }
   .spacer { flex: 1; }
   main { flex: 1; display: flex; min-height: 0; }
   #chartWrap { position: relative; flex: 1; min-width: 0; }
@@ -40,12 +42,12 @@
     border-bottom: 1px solid var(--grid); text-transform: uppercase; letter-spacing: 1px; }
   #list { overflow-y: auto; flex: 1; }
   .row { display: grid; grid-template-columns: 62px 1fr 78px; gap: 6px; padding: 4px 10px;
-    border-bottom: 1px solid #151d2a; cursor: pointer; }
-  .row:hover { background: #172033; }
+    border-bottom: 1px solid var(--row-line); cursor: pointer; }
+  .row:hover { background: var(--hover); }
   .row .b { color: var(--up); } .row .a { color: var(--down); }
   .row .addr { color: var(--muted); font-size: 11px; grid-column: 1 / -1; }
   .row .abs { color: var(--absorb); }
-  #tip { position: absolute; pointer-events: none; display: none; background: rgba(17,24,39,.96);
+  #tip { position: absolute; pointer-events: none; display: none; background: rgba(30,34,45,.97);
     border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; min-width: 220px;
     box-shadow: 0 4px 20px rgba(0,0,0,.5); white-space: nowrap; z-index: 5; }
   #tip .k { color: var(--muted); display: inline-block; width: 92px; }
@@ -327,10 +329,10 @@ function bubbleRadius(n, maxN) {
 let bubbles = [];
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg") || "#0b0f17";
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg") || "#131722";
   ctx.fillRect(0, 0, W, H);
   if (!state.candles.length) {
-    ctx.fillStyle = "#6b7a90"; ctx.font = "13px monospace";
+    ctx.fillStyle = "#787b86"; ctx.font = "13px monospace";
     ctx.fillText("Keine Daten", W / 2 - 40, H / 2); return;
   }
   const L = layout();
@@ -363,20 +365,19 @@ function draw() {
     const c = state.candles[i]; if (!c) continue;
     const x = L.xOfIdx(i), up = c.c >= c.o;
     ctx.strokeStyle = ctx.fillStyle = up ? col("--up") : col("--down");
-    ctx.globalAlpha = 0.55;
     ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, L.yOf(c.h)); ctx.lineTo(Math.round(x) + 0.5, L.yOf(c.l)); ctx.stroke();
     const y1 = L.yOf(Math.max(c.o, c.c)), y2 = L.yOf(Math.min(c.o, c.c));
     ctx.fillRect(x - body / 2, y1, body, Math.max(1, y2 - y1));
   }
-  ctx.globalAlpha = 1;
 
   // last price line
   const lastC = state.candles[state.candles.length - 1];
   const ly = L.yOf(lastC.c);
-  ctx.setLineDash([3, 3]); ctx.strokeStyle = col("--accent");
+  const lastCol = lastC.c >= lastC.o ? col("--up") : col("--down");
+  ctx.setLineDash([1, 2]); ctx.strokeStyle = lastCol;
   ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(L.plotW, ly); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = col("--accent"); ctx.fillRect(L.plotW, ly - 9, PAD.r, 18);
-  ctx.fillStyle = "#000"; ctx.textBaseline = "middle"; ctx.fillText(fmtPx(lastC.c), L.plotW + 6, ly);
+  ctx.fillStyle = lastCol; ctx.fillRect(L.plotW, ly - 9, PAD.r, 18);
+  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.fillText(fmtPx(lastC.c), L.plotW + 6, ly);
 
   // bubbles
   const vt = visibleTrades().filter((t) => t.start_time >= L.t0 && t.start_time < L.t1);
@@ -418,10 +419,10 @@ function draw() {
   // crosshair
   if (state.mouse && state.mouse.x < L.plotW) {
     const { x, y } = state.mouse;
-    ctx.strokeStyle = "rgba(201,212,229,.25)"; ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = col("--cross"); ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b); ctx.moveTo(0, y); ctx.lineTo(L.plotW, y); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#1f2937"; ctx.fillRect(L.plotW, y - 9, PAD.r, 18);
+    ctx.fillStyle = col("--label"); ctx.fillRect(L.plotW, y - 9, PAD.r, 18);
     ctx.fillStyle = col("--text"); ctx.textBaseline = "middle"; ctx.fillText(fmtPx(L.pOfY(y)), L.plotW + 6, y);
   }
 
